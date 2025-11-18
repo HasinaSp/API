@@ -31,9 +31,8 @@ return payload;
 }
 
 
-async createTrade(quoteId: string) {
-const trade = await this.circle.createTrade({ quoteId });
-return trade;
+async createTrade(body: { idempotencyKey: string; quoteId: string }) {
+  return this.circle.createTrade(body);
 }
 
 
