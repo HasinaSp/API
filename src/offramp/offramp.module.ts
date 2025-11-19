@@ -1,8 +1,9 @@
+/* eslint-disable prettier/prettier */
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { OfframpController } from './offramp.controller';
 import { OfframpService } from './offramp.service';
-import { CircleService } from './circle.service';
+import { CircleService } from '../circle/circle.service';
 
 
 @Module({
