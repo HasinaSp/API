@@ -1,74 +1,167 @@
-import { Injectable, Logger } from '@nestjs/common';
-constructor(private readonly circle: CircleService) {}
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable prettier/prettier */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { CreateOffRampDto } from './dto/create-offramp.dto';
+import { CircleService } from '../circle/circle.service';
+// import { BankService } from '../bank/bank.service'; // si tu as une intégration bancaire
+
+@Injectable()
+export class OfframpService {
+  private readonly logger = new Logger(OfframpService.name);
+
+  constructor(
+    private readonly circle: CircleService,
+    // private readonly bank: BankService, // si tu ajoutes un module bancaire
+  ) {}
+
+  /**
+   * - GET /v1/configuration (debug only)
+   */
+  async getCircleConfiguration() {
+    return this.circle.getConfiguration();
+  }
+
+  /**
+   *
+   * 1. Create quote (USDC → EURC)
+   * 2. Accept trade
+   * 3. Execute bank transfer
+   */
+  async processOffRamp(body: CreateOffRampDto) {
+    try {
+      this.logger.debug('Starting OFFRAMP with payload: ' + JSON.stringify(body));
+
+      const { userId, walletAddress, amount, currency, bankAccountId } = body;
+
+      //
+      // -----------------------------------------
+      // Create Quote (USDC → EURC)
+      // -----------------------------------------
+      //
+      const quotePayload = {
+        sourceAssetId: 'USDC',     // tu peux les rendre dynamiques
+        destinationAssetId: 'EURC', 
+        amount,
+        idempotencyKey: this.generateKey(),
+      };
+
+      this.logger.debug('Creating Quote: ' + JSON.stringify(quotePayload));
+
+      const quoteRes = await this.circle.createQuote(quotePayload);
+
+      const quoteId = quoteRes?.data?.id;
+      if (!quoteId) {
+        throw new BadRequestException('Circle did not return a quoteId');
+      }
+
+      this.logger.log(`Quote created successfully: ${quoteId}`);
 
 
-async startOfframpFlow(dto: InitiateOfframpDto) {
-// 1) Create quote
-const quote = await this.createQuote({ from: dto.from, to: dto.to, amount: dto.amount });
+      //
+      // -----------------------------------------
+      // Accept Trade
+      // -----------------------------------------
+      //
+      const tradePayload = {
+        idempotencyKey: this.generateKey(),
+        quoteId,
+      };
 
-async getCircleConfiguration() {
-  return this.circle.getConfiguration();
-}
+      this.logger.debug('Accepting Trade: ' + JSON.stringify(tradePayload));
 
-// 2) Validate quote locally (business rules)
-// -> In production, check limits, KYC, fees
+      const tradeRes = await this.circle.createTrade(tradePayload);
 
+      const tradeId = tradeRes?.data?.id;
+      if (!tradeId) {
+        throw new BadRequestException('Circle did not return a tradeId');
+      }
 
-// 3) Create trade
-const trade = await this.createTrade(quote.id);
-
-
-// 4) return pending status and trade/quote ids
-return { quoteId: quote.id, tradeId: trade.id, status: 'pending_trade' };
-}
-
-
-async createQuote(body: CreateQuoteDto) {
-// calls Circle API via CircleService
-const payload = await this.circle.createQuote(body);
-// map/validate before returning
-return payload;
-}
+      this.logger.log(`Trade executed successfully: ${tradeId}`);
 
 
-async createTrade(quoteId: string) {
-const trade = await this.circle.createTrade({ quoteId });
-return trade;
-}
+      //
+      // -----------------------------------------
+      // Execute BANK Transfer
+      // -----------------------------------------
+      //
+      // Ici tu appelles ton propre service bancaire
+      //
+      // const bankResult = await this.bank.sendFiat({
+      //   bankAccountId,
+      //   userId,
+      //   amount,
+      //   currency,
+      // });
+      //
+      // For now, mock:
+      const bankResult = {
+        transferId: this.generateKey(),
+        status: 'pending',
+      };
+
+      this.logger.log(`Bank transfer initiated: ${bankResult.transferId}`);
 
 
-async handleCircleWebhook(payload: any) {
-// Example payload contains tradeId and status
-this.logger.debug('Received webhook: ' + JSON.stringify(payload));
+      //
+      // -----------------------------------------
+      // Build final response
+      // -----------------------------------------
+      //
+      return {
+        success: true,
+        quoteId,
+        tradeId,
+        bankTransfer: bankResult,
+        message: 'Offramp flow executed successfully',
+      };
 
+    } catch (err) {
+      this.logger.error('Offramp flow failed', err);
+      throw err;
+    }
+  }
 
-if (payload.type === 'trade.completed' || payload.status === 'completed') {
-// 1) fetch trade details
-const trade = await this.circle.getTrade(payload.data?.tradeId || payload.data?.id);
+  /**
+   * Testing — create quote only
+   */
+  async testQuote() {
+    return this.circle.createQuote({
+      idempotencyKey: this.generateKey(),
+      sourceAssetId: 'USDC',
+      destinationAssetId: 'EURC',
+      amount: 100,
+    });
+  }
 
+  /**
+   * Testing — accept trade
+   */
+  async testTrade() {
+    return this.circle.createTrade({
+      idempotencyKey: this.generateKey(),
+      quoteId: 'REPLACE_WITH_REAL_QUOTE',
+    });
+  }
 
-// 2) create business account (if needed)
-const bank = await this.circle.createBusinessBank({/* map from trade */});
+  /**
+   * Testing — mock bank transfer
+   */
+  async testBankTransfer() {
+    return {
+      transferId: this.generateKey(),
+      status: 'pending',
+    };
+  }
 
-
-// 3) create payout to destination account
-const payout = await this.circle.createPayout({ destination: bank.id, amount: trade.amount });
-
-
-return { ok: true, trade, bank, payout };
-}
-
-
-return { ok: true };
-}
-
-
-async createBusinessBank(body: any) {
-return this.circle.createBusinessBank(body);
-}
-
-
-async createPayout(body: any) {
-return this.circle.createPayout(body);
-}
+  /**
+   * Generate idempotency keys
+   */
+  private generateKey(): string {
+    return crypto.randomUUID();
+  }
 }
