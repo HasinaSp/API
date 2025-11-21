@@ -1,31 +1,26 @@
-import {
-  IsNotEmpty,
-  IsNumber,
-  IsString,
-  IsUUID,
-  Min,
-  MaxLength,
-} from 'class-validator';
-
 export class CreateOffRampDto {
-  @IsUUID()
-  @IsNotEmpty()
-  userId: string;
+  amount: string;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(150)
-  walletAddress: string;
+  destination: {
+    iban: string;
 
-  @IsNumber()
-  @Min(0.01, { message: 'Amount must be greater than 0.01' })
-  amount: number;
+    billingDetails: {
+      name: string;
+      city: string;
+      country: string;
+      line1: string;
+      line2?: string;
+      district?: string;
+      postalCode?: string;
+    };
 
-  @IsString()
-  @IsNotEmpty()
-  currency: string; // ex: "EUR"
-
-  @IsUUID()
-  @IsNotEmpty()
-  bankAccountId: string;
+    bankAddress: {
+      bankName: string;
+      city: string;
+      country: string;
+      line1?: string;
+      line2?: string;
+      district?: string;
+    };
+  };
 }

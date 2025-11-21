@@ -1,6 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   Controller,
@@ -19,7 +17,7 @@ export class OfframpController {
   constructor(private readonly offrampService: OfframpService) {}
 
   /**
-   * 🔵 Circle: Debug – récupérer les configurations actuelles
+   * Circle: Debug – récupérer les configurations actuelles
    * (Rate limits, Webhooks, Exchange config etc.)
    */
   @Get('circle/config')
@@ -36,7 +34,7 @@ export class OfframpController {
    */
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async createOfframp(@Body() body: CreateOffRampDto) {
     // Exemple de retour:
     // {
@@ -49,7 +47,7 @@ export class OfframpController {
   }
 
   /**
-   * 🟢 Endpoint pour tester chaque étape
+   * Endpoint pour tester chaque étape
    */
 
   @Post('exchange/quote')

@@ -1,166 +1,183 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/require-await */
+
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { CreateOffRampDto } from './dto/create-offramp.dto';
 import { CircleService } from '../circle/circle.service';
-// import { BankService } from '../bank/bank.service'; // si tu as une intégration bancaire
+import * as crypto from 'crypto';
 
 @Injectable()
 export class OfframpService {
   private readonly logger = new Logger(OfframpService.name);
 
-  constructor(
-    private readonly circle: CircleService,
-    // private readonly bank: BankService, // si tu ajoutes un module bancaire
-  ) {}
+  constructor(private readonly circle: CircleService) {}
 
-  /**
-   * - GET /v1/configuration (debug only)
-   */
+  // ---------------------------------------------------------
+  // PUBLIC METHODS (appelées par le controller)
+  // ---------------------------------------------------------
+
   async getCircleConfiguration() {
     return this.circle.getConfiguration();
   }
 
-  /**
-   *
-   * 1. Create quote (USDC → EURC)
-   * 2. Accept trade
-   * 3. Execute bank transfer
-   */
   async processOffRamp(body: CreateOffRampDto) {
     try {
       this.logger.debug('Starting OFFRAMP with payload: ' + JSON.stringify(body));
 
-      const { userId, walletAddress, amount, currency, bankAccountId } = body;
-
-      //
-      // -----------------------------------------
-      // Create Quote (USDC → EURC)
-      // -----------------------------------------
-      //
-      const quotePayload = {
-        sourceAssetId: 'USDC',     // tu peux les rendre dynamiques
-        destinationAssetId: 'EURC', 
-        amount,
-        idempotencyKey: this.generateKey(),
-      };
-
-      this.logger.debug('Creating Quote: ' + JSON.stringify(quotePayload));
-
-      const quoteRes = await this.circle.createQuote(quotePayload);
-
-      const quoteId = quoteRes?.data?.id;
-      if (!quoteId) {
-        throw new BadRequestException('Circle did not return a quoteId');
+      const amount = Number(body.amount);
+      if (isNaN(amount)) {
+        throw new BadRequestException('Amount must be a valid number');
       }
-
-      this.logger.log(`Quote created successfully: ${quoteId}`);
-
-
-      //
-      // -----------------------------------------
-      // Accept Trade
-      // -----------------------------------------
-      //
-      const tradePayload = {
+      // 1. Quote
+      const quote = await this.circle.createQuote({
+        sourceAssetId: 'USDC',
+        destinationAssetId: 'EURC',
+        amount: amount,
         idempotencyKey: this.generateKey(),
-        quoteId,
-      };
+      });
 
-      this.logger.debug('Accepting Trade: ' + JSON.stringify(tradePayload));
+      const trade = await this.circle.createTrade({
+        quoteId: quote.data?.id ?? quote.id,
+        idempotencyKey: this.generateKey(),
+      });
 
-      const tradeRes = await this.circle.createTrade(tradePayload);
+      // create bank account (use destination billing / iban)
+      const bankAccount = await this.circle.createBankWireAccount({
+        name: body.destination?.billingDetails?.name,
+        iban: body.destination?.iban,
+        billingDetails: body.destination?.billingDetails,
+        bankAddress: body.destination?.bankAddress,
+      });
 
-      const tradeId = tradeRes?.data?.id;
-      if (!tradeId) {
-        throw new BadRequestException('Circle did not return a tradeId');
-      }
+      // create payout
+      const payout = await this.circle.createPayout({
+        destination: { id: bankAccount.data?.id ?? bankAccount.id },
+        amount: amount,
+        currency: 'EUR',
+        idempotencyKey: this.generateKey(),
+      });
 
-      this.logger.log(`Trade executed successfully: ${tradeId}`);
+      return { quote, trade, bankAccount, payout };
+      return { quote, trade, bankAccount, payout };
 
-
-      //
-      // -----------------------------------------
-      // Execute BANK Transfer
-      // -----------------------------------------
-      //
-      // Ici tu appelles ton propre service bancaire
-      //
-      // const bankResult = await this.bank.sendFiat({
-      //   bankAccountId,
-      //   userId,
-      //   amount,
-      //   currency,
-      // });
-      //
-      // For now, mock:
-      const bankResult = {
-        transferId: this.generateKey(),
-        status: 'pending',
-      };
-
-      this.logger.log(`Bank transfer initiated: ${bankResult.transferId}`);
-
-
-      //
-      // -----------------------------------------
-      // Build final response
-      // -----------------------------------------
-      //
-      return {
-        success: true,
-        quoteId,
-        tradeId,
-        bankTransfer: bankResult,
-        message: 'Offramp flow executed successfully',
-      };
-
-    } catch (err) {
-      this.logger.error('Offramp flow failed', err);
-      throw err;
+    } catch (error) {
+      this.logger.error('Offramp flow failed', error);
+      throw error;
     }
   }
 
-  /**
-   * Testing — create quote only
-   */
+
   async testQuote() {
-    return this.circle.createQuote({
-      idempotencyKey: this.generateKey(),
+    return this.createQuoteInternal(100);
+  }
+
+  async testTrade() {
+    return this.executeTradeInternal('REPLACE_WITH_QUOTE');
+  }
+
+  async testBankTransfer() {
+  return this.executeBankTransferInternal({
+    amount: "100",
+    destination: {
+      iban: "FR7612345678901234567890123",
+      billingDetails: {
+        name: "Test User",
+        city: "Paris",
+        country: "FR",
+        line1: "1 test street",
+      },
+      bankAddress: {
+        bankName: "Test Bank",
+        city: "Paris",
+        country: "FR",
+      }
+    }
+  });
+}
+
+  // ---------------------------------------------------------
+  // PRIVATE METHODS (logique interne)
+  // ---------------------------------------------------------
+
+  /** Step 1 – Create quote USDC → EURC */
+  private async createQuoteInternal(amount: number): Promise<string> {
+    const quotePayload = {
       sourceAssetId: 'USDC',
       destinationAssetId: 'EURC',
-      amount: 100,
-    });
-  }
-
-  /**
-   * Testing — accept trade
-   */
-  async testTrade() {
-    return this.circle.createTrade({
+      amount,
       idempotencyKey: this.generateKey(),
-      quoteId: 'REPLACE_WITH_REAL_QUOTE',
-    });
+    };
+
+    this.logger.debug('Creating Quote: ' + JSON.stringify(quotePayload));
+
+    const res = await this.circle.createQuote(quotePayload);
+
+    const quoteId = res?.data?.id;
+    if (!quoteId) {
+      throw new BadRequestException('Circle did not return a quoteId');
+    }
+
+    this.logger.log(`Quote created successfully: ${quoteId}`);
+
+    return quoteId;
   }
 
-  /**
-   * Testing — mock bank transfer
-   */
-  async testBankTransfer() {
-    return {
+  /** Step 2 – Execute trade */
+  private async executeTradeInternal(quoteId: string): Promise<string> {
+    const payload = {
+      idempotencyKey: this.generateKey(),
+      quoteId,
+    };
+
+    this.logger.debug('Accepting Trade: ' + JSON.stringify(payload));
+
+    const res = await this.circle.createTrade(payload);
+
+    const tradeId = res?.data?.id;
+    if (!tradeId) {
+      throw new BadRequestException('Circle did not return a tradeId');
+    }
+
+    this.logger.log(`Trade executed successfully: ${tradeId}`);
+
+    return tradeId;
+  }
+
+  /** Step 3 – Execute bank transfer (mock for now) */
+  private async executeBankTransferInternal(body: CreateOffRampDto) {
+    const { amount, destination } = body;
+
+    // Ici tu vas brancher ton service bancaire réel
+    // Exemple d’un payload nettoyé et prêt à être envoyé
+    const bankPayload = {
+      amount,
+      iban: destination.iban,
+      billingDetails: destination.billingDetails,
+      bankAddress: destination.bankAddress,
+      idempotencyKey: this.generateKey(),
+    };
+
+    this.logger.debug('Executing bank transfer with payload: ' + JSON.stringify(bankPayload));
+
+  // TODO: remplacer par un appel réel à ton service bancaire :
+  // const result = await this.bank.sendFiat(bankPayload);
+
+    const mockResponse = {
       transferId: this.generateKey(),
       status: 'pending',
+      payloadSent: bankPayload
     };
+
+    this.logger.log(`Bank transfer initiated: ${mockResponse.transferId}`);
+
+    return mockResponse;
   }
 
-  /**
-   * Generate idempotency keys
-   */
+
+  /** Idempotency key generator */
   private generateKey(): string {
     return crypto.randomUUID();
   }
