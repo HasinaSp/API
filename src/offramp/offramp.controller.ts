@@ -1,3 +1,5 @@
+/* eslint-disable prettier/prettier */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   Controller,
   Post,
@@ -6,46 +8,60 @@ import {
   HttpStatus,
   Get,
 } from '@nestjs/common';
-import { OfframpService } from './offramp.service';
-import { InitiateOfframpDto } from './dto/initiate-offramp.dto';
-import { CreateQuoteDto } from './dto/quote.dto';
-import { CreateTradeDto } from './dto/trade.dto';
 
-@Controller('v1')
+import { OfframpService } from './offramp.service';
+import { CreateOffRampDto } from './dto/create-offramp.dto';
+
+@Controller('v1/offramp')
 export class OfframpController {
   constructor(private readonly offrampService: OfframpService) {}
 
   /**
-   * GET Circle configuration
+   * Circle: Debug – récupérer les configurations actuelles
+   * (Rate limits, Webhooks, Exchange config etc.)
    */
-  @Get('circle/configuration')
+  @Get('circle/config')
   async getCircleConfig() {
     return this.offrampService.getCircleConfiguration();
   }
 
   /**
-   * STEP 1 : Start offramp flow
-   * Converts USDC -> EURC using quotes + trade
+   * 1. Vérifie la config Circle
+   * 2. Crée une quote USDC → EURC
+   * 3. Accepte le trade (exchange)
+   * 4. Effectue le transfert bancaire
+   * 5. Retourne un résultat consolidé
    */
-  @Post('offramp/USDC')
+  @Post()
   @HttpCode(HttpStatus.ACCEPTED)
-  async initiate(@Body() body: InitiateOfframpDto) {
-    return this.offrampService.startOfframpFlow(body);
+   
+  async createOfframp(@Body() body: CreateOffRampDto) {
+    // Exemple de retour:
+    // {
+    //   quoteId,
+    //   tradeId,
+    //   transferId,
+    //   finalStatus
+    // }
+    return this.offrampService.processOffRamp(body);
   }
 
   /**
-   * STEP 2 : Create Exchange Quote (optional)
+   * Endpoint pour tester chaque étape
    */
-  @Post('exchange/quotes')
-  async createQuote(@Body() body: CreateQuoteDto) {
-    return this.offrampService.createQuote(body);
+
+  @Post('exchange/quote')
+  async createQuote() {
+    return this.offrampService.testQuote();
   }
 
-  /**
-   * STEP 3 : Create Trade
-   */
-  @Post('exchange/trades')
-  async createTrade(@Body() body: CreateTradeDto) {
-    return this.offrampService.createTrade(body);
+  @Post('exchange/trade')
+  async acceptTrade() {
+    return this.offrampService.testTrade();
+  }
+
+  @Post('transfer/bank')
+  async transfer() {
+    return this.offrampService.testBankTransfer();
   }
 }

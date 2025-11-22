@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { IsString, IsNumber, IsOptional, IsNotEmpty } from 'class-validator';
 
 
